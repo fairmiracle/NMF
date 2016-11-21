@@ -2,7 +2,8 @@
 *	NMF by alternative non-negative least squares using projected gradients
 *	Original Author: Chih-Jen Lin, National Taiwan University
 *	Original website: http://www.csie.ntu.edu.tw/~cjlin/nmf/index.html
-*	C program auther: Dong Li (donggeat@gmail.com)
+*	C program auther: Dong Li (donggeat@gmail.com) 
+* 	Created at 2014-09-16, modified at 2015-10-15 thank Zibin Zhang
 *	I rewrote the Matlab code in C, with BLAS. Free to use and modify.
 
 *	As the first time to use BLAS and CBLAS, you may need to configure like this on Linux:
@@ -33,7 +34,7 @@ void OutPutVector(int N, double* A)
 {
 	//printf("Vector: %d\n",N);
 	int i;	
-	for(i=0;i<N;i++)
+	for(i = 0; i < N; i++)
    		printf("%10.4f ",*(A+i));
 	printf("\n");
 }
@@ -101,18 +102,17 @@ void nlssubprob(double *V, double *W, double *Hinit, int m, int n, int k, double
 		memcpy(grad,WtV,n*k*sizeof(double));
 		cblas_dgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,n,k,n,1,WtW,n,H,n,-1,grad,n);
 		
-		//projgrad = norm(grad(grad < 0 | H >0));
-		
 		memset(tmpvec, 0, n*k*sizeof(double));
 		int ii = 0;
 		for (int i = 0; i < n*k; i++){
-			if (grad[i] < 0 || H[i] < 0 )
+			if (grad[i] < 0 || H[i] > 0 )
 				tmpvec[ii++] = grad[i];
 		}
 		double projgrad = cblas_dnrm2(ii, tmpvec, 1);
 	
 		if (projgrad < tol)
 			break;
+		bool decr_alpha = true;
 		for (int inner_iter = 1; inner_iter <= 20; inner_iter++){
 			//Hn = max(H - alpha*grad, 0); d = Hn-H;
 			memcpy(Hn,H,n*k*sizeof(double));
@@ -130,7 +130,7 @@ void nlssubprob(double *V, double *W, double *Hinit, int m, int n, int k, double
 			cblas_dgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,n,k,n,1,WtW,n,d,n,0,WtWd,n);
 			double dQd = cblas_ddot(n*k, WtWd, 1, d, 1);
 			bool suff_decr = 0.99*gradd + 0.5*dQd < 0;
-			bool decr_alpha = true;
+			//bool decr_alpha = true;
 			if (inner_iter==1){
 				decr_alpha = ~suff_decr; 
 				memcpy(Hp,H,n*k*sizeof(double));
@@ -239,6 +239,7 @@ void NMF(double *V, double *Winit,double *Hinit, int m, int n, int k, double tol
 	int iter = 0;	
 	for (iter = 1; iter <= maxiter; iter++){
 		//projnorm = norm([gradW(gradW<0 | W>0); gradH(gradH<0 | H>0)]);
+
 		int ii = 0;
 		for (int i = 0; i < m*n; i++){
 			if (gradW[i] < 0 || W[i] > 0 )
@@ -263,6 +264,9 @@ void NMF(double *V, double *Winit,double *Hinit, int m, int n, int k, double tol
 		transpose(H, Ht, n, k);
 		transpose(W, Wt, m, n);
 		nlssubprob(Vt, Ht, Wt, k, n, m, tolW, 1000, W, gradW, &iterW);//printf("complete stage %d\n",iter);
+		transpose(W, W, m, n);
+		transpose(gradW, gradW, m, n);
+
 		if (iterW == 1)
 			tolW = 0.1 * tolW;
 		
@@ -273,6 +277,7 @@ void NMF(double *V, double *Winit,double *Hinit, int m, int n, int k, double tol
 		
 		if ( iter%10 == 0)
 			printf(".");
+		//printf("\nIter = %d tol=%f proj-grad norm %f\n", iter, tol, projnorm);
 	}
 	
 	printf("\nIter = %d Final proj-grad norm %f\n", iter, projnorm);
@@ -287,6 +292,9 @@ int main(int argc, char **argv)
 	int k = 4;
 	
 	double V[8]={1,2,3,4,5,6,7,8};
+	//double *V = 0;		
+	//V = (double *)malloc(m*k*sizeof(double));
+	//randomInit(V, m*k);
 
 	double *Winit = 0;		
 	Winit = (double *)malloc(m*n*sizeof(double));
@@ -304,7 +312,7 @@ int main(int argc, char **argv)
 	randomInit(Winit, m*n);
 	randomInit(Hinit, n*k);
 
-	NMF(V, Winit, Hinit, m, n, k, 0.001, 100, 100, W, H);
+	NMF(V, Winit, Hinit, m, n, k, 0.0001, 1000, 1000, W, H);
 
 	printf("values in W (column major):\n");
 	OutPutVector(m*n, W);
@@ -320,7 +328,7 @@ int main(int argc, char **argv)
 	printf("The result W*H is\n");
 	OutPutVector(m*k, Vlast);
 	cblas_daxpy(m*k, -1, V, 1, Vlast, 1);
-	double fnorm = sqrt(cblas_ddot(m*k, Vlast, 1, Vlast, 1));
+	double fnorm = cblas_dnrm2(m*k, Vlast, 1);
 	printf("The ||W*H-V|| is: %f\n", fnorm);
 	
 	free(Hinit);
@@ -330,4 +338,3 @@ int main(int argc, char **argv)
 	free(Vlast);
 	exit(1);
 }
-
